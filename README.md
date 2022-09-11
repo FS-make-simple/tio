@@ -1,3 +1,16 @@
+`Origin__`:
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/tio/tio)
+![GitHub Release Date](https://img.shields.io/github/release-date/tio/tio)
+![GitHub repo size](https://img.shields.io/github/repo-size/tio/tio)
+![GitHub all releases](https://img.shields.io/github/downloads/tio/tio/total)
+![GitHub](https://img.shields.io/github/license/tio/tio)  
+`ORG.FSMS`:
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/FS-make-simple/tio)
+![GitHub Release Date](https://img.shields.io/github/release-date/FS-make-simple/tio)
+![GitHub repo size](https://img.shields.io/github/repo-size/FS-make-simple/tio)
+![GitHub all releases](https://img.shields.io/github/downloads/FS-make-simple/tio/total)
+![GitHub](https://img.shields.io/github/license/FS-make-simple/tio)
+
 # tio - a simple serial device I/O tool
 
 [![CircleCI](https://circleci.com/gh/tio/tio/tree/master.svg?style=shield)](https://circleci.com/gh/tio/tio/tree/master)
@@ -253,14 +266,8 @@ The latest source releases can be found [here](https://github.com/tio/tio/releas
 
 Install steps:
 ```
-    $ meson build
-    $ meson compile -C build
-    $ meson install -C build
+    $ make
 ```
-
-See meson\_options.txt for tio specific build options.
-
-Note: The meson install steps may differ depending on your specific system.
 
 
 ## 5. Contributing

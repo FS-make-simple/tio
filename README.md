@@ -13,9 +13,10 @@
 
 # tio - a simple serial device I/O tool
 
-[![CircleCI](https://circleci.com/gh/tio/tio/tree/master.svg?style=shield)](https://circleci.com/gh/tio/tio/tree/master)
-[![tio](https://snapcraft.io/tio/badge.svg)](https://snapcraft.io/tio)
-[![Packaging status](https://repology.org/badge/tiny-repos/tio.svg)](https://repology.org/project/tio/versions)
+[![](https://img.shields.io/circleci/build/gh/tio/tio?token=da7e7fd0d0ee99b9f986f8877dcdbe28f73d9e06)](https://circleci.com/gh/tio/tio/tree/master)
+[![](https://img.shields.io/github/v/release/tio/tio?sort=semver)](https://github.com/tio/tio/releases)
+[![](https://img.shields.io/tokei/lines/github/tio/tio)](https://github.com/tio/tio)
+[![](https://img.shields.io/repology/repositories/tio)](https://repology.org/project/tio/versions)
 
 ## 1. Introduction
 
@@ -44,12 +45,13 @@ when used in combination with [tmux](https://tmux.github.io).
  * Sensible defaults
  * Support for non-standard baud rates
  * Support for RS-485 mode
+ * Support for mark and space parity
  * List available serial devices by ID
  * Show RX/TX statistics
  * Toggle serial lines
  * Pulse serial lines with configurable pulse duration
  * Local echo support
- * Map characters (nl, cr-nl, bs, lowercase to uppercase, etc.)
+ * Remapping of characters (nl, cr-nl, bs, lowercase to uppercase, etc.)
  * Line timestamps
  * Support for delayed output per character
  * Support for delayed output per line
@@ -62,7 +64,7 @@ when used in combination with [tmux](https://tmux.github.io).
  * Pipe input and/or output
  * Support for simple line request/response handling
  * Bash completion
- * Color support
+ * Configurable text color
  * Visual or audible alert on connect/disconnect
  * Remapping of prefix key
  * Man page documentation
@@ -78,42 +80,42 @@ For more usage details please see the man page documentation
 The command-line interface is straightforward as reflected in the output from
 'tio --help':
 ```
-  Usage: tio [<options>] <tty-device|sub-config>
+ Usage: tio [<options>] <tty-device|sub-config>
 
-  Connect to tty device directly or via sub-configuration.
+ Connect to tty device directly or via sub-configuration.
 
-  Options:
-    -b, --baudrate <bps>                   Baud rate (default: 115200)
-    -d, --databits 5|6|7|8                 Data bits (default: 8)
-    -f, --flow hard|soft|none              Flow control (default: none)
-    -s, --stopbits 1|2                     Stop bits (default: 1)
-    -p, --parity odd|even|none|mark|space  Parity (default: none)
-    -o, --output-delay <ms>                Output character delay (default: 0)
-    -O, --output-line-delay <ms>           Output line delay (default: 0)
-        --line-pulse-duration <duration>   Set line pulse duration
-    -n, --no-autoconnect                   Disable automatic connect
-    -e, --local-echo                       Enable local echo
-    -t, --timestamp                        Enable line timestamp
-        --timestamp-format <format>        Set timestamp format (default: 24hour)
-    -L, --list-devices                     List available serial devices
-    -l, --log                              Enable log to file
-        --log-file <filename>              Set log filename
-        --log-strip                        Strip control characters and escape sequences
-    -m, --map <flags>                      Map characters
-    -c, --color 0..255|bold|none|list      Colorize tio text (default: bold)
-    -S, --socket <socket>                  Redirect I/O to socket
-    -x, --hexadecimal                      Enable hexadecimal mode
-    -r, --response-wait                    Wait for line response then quit
-        --response-timeout <ms>            Response timeout (default: 100)
-        --rs-485                           Enable RS-485 mode
-        --rs-485-config <config>           Set RS-485 configuration
-        --alert bell|blink|none            Alert on connect/disconnect (default: none)
-    -v, --version                          Display version
-    -h, --help                             Display help
+ Options:
+   -b, --baudrate <bps>                   Baud rate (default: 115200)
+   -d, --databits 5|6|7|8                 Data bits (default: 8)
+   -f, --flow hard|soft|none              Flow control (default: none)
+   -s, --stopbits 1|2                     Stop bits (default: 1)
+   -p, --parity odd|even|none|mark|space  Parity (default: none)
+   -o, --output-delay <ms>                Output character delay (default: 0)
+   -O, --output-line-delay <ms>           Output line delay (default: 0)
+       --line-pulse-duration <duration>   Set line pulse duration
+   -n, --no-autoconnect                   Disable automatic connect
+   -e, --local-echo                       Enable local echo
+   -t, --timestamp                        Enable line timestamp
+       --timestamp-format <format>        Set timestamp format (default: 24hour)
+   -L, --list-devices                     List available serial devices
+   -l, --log                              Enable log to file
+       --log-file <filename>              Set log filename
+       --log-strip                        Strip control characters and escape sequences
+   -m, --map <flags>                      Map characters
+   -c, --color 0..255|bold|none|list      Colorize tio text (default: bold)
+   -S, --socket <socket>                  Redirect I/O to socket
+   -x, --hexadecimal                      Enable hexadecimal mode
+   -r, --response-wait                    Wait for line response then quit
+       --response-timeout <ms>            Response timeout (default: 100)
+       --rs-485                           Enable RS-485 mode
+       --rs-485-config <config>           Set RS-485 configuration
+       --alert bell|blink|none            Alert on connect/disconnect (default: none)
+   -v, --version                          Display version
+   -h, --help                             Display help
 
-  Options and sub-configurations may be set via configuration file.
+ Options and sub-configurations may be set via configuration file.
 
-  See the man page for more details.
+ See the man page for more details.
 
 ```
 
@@ -126,6 +128,7 @@ established connection is lost.
 
 tio features full bash autocompletion.
 
+#### 3.1.1 Examples
 
 Typical use is without options:
 ```
@@ -144,6 +147,27 @@ $ tio /dev/serial/by-id/usb-FTDI_TTL232R-3V3_FTGQVXBL-if00-port0
 Using serial devices by ID ensures that tio automatically reconnects to the
 correct serial device if it is disconnected and then reconnected.
 
+List available serial devices by ID:
+```
+$ tio --list-devices
+```
+Note: One can also use tio shell completion on /dev which will automatically
+list all available serial tty devices.
+
+Log to file with autogenerated filename:
+```
+$ tio --log /dev/ttyUSB0
+```
+
+Enable ISO8601 timestamps per line:
+```
+$ tio --timestamp --timestamp-format iso8601 /dev/ttyUSB0
+```
+
+Redirect I/O to IPv4 network socket on port 4242:
+```
+$ tio --socket inet:4242 /dev/ttyUSB0
+```
 
 Inject data to the serial device:
 ```
@@ -163,20 +187,21 @@ ctrl-t ? to list the available key commands.
 
 ```
 [20:19:12.040] Key commands:
-[20:19:12.040]  ctrl-t ?   List available key commands
-[20:19:12.040]  ctrl-t b   Send break
-[20:19:12.040]  ctrl-t c   Show configuration
-[20:19:12.040]  ctrl-t e   Toggle local echo mode
-[20:19:12.040]  ctrl-t g   Toggle serial port line
-[20:19:12.040]  ctrl-t h   Toggle hexadecimal mode
-[20:19:12.040]  ctrl-t l   Clear screen
-[20:19:12.040]  ctrl-t L   Show line states
-[20:19:12.040]  ctrl-t p   Pulse serial port line
-[20:19:12.040]  ctrl-t q   Quit
-[20:19:12.041]  ctrl-t s   Show statistics
-[20:19:12.041]  ctrl-t T   Toggle line timestamp mode
-[20:19:12.041]  ctrl-t U   Toggle conversion to uppercase
-[20:19:12.041]  ctrl-t v   Show version
+[20:19:12.040]  ctrl-t ?       List available key commands
+[20:19:12.040]  ctrl-t b       Send break
+[20:19:12.040]  ctrl-t c       Show configuration
+[20:19:12.040]  ctrl-t e       Toggle local echo mode
+[20:19:12.040]  ctrl-t g       Toggle serial port line
+[20:19:12.040]  ctrl-t h       Toggle hexadecimal mode
+[20:19:12.040]  ctrl-t l       Clear screen
+[20:19:12.040]  ctrl-t L       Show line states
+[20:19:12.040]  ctrl-t p       Pulse serial port line
+[20:19:12.040]  ctrl-t q       Quit
+[20:19:12.041]  ctrl-t s       Show statistics
+[20:19:12.041]  ctrl-t t       Toggle line timestamp mode
+[20:19:12.041]  ctrl-t U       Toggle conversion to uppercase
+[20:19:12.041]  ctrl-t v       Show version
+[20:19:12.041]  ctrl-t ctrl-t  Send ctrl-t character
 ```
 
 If needed, the prefix key (ctrl-t) can be remapped via configuration file.
@@ -227,7 +252,7 @@ Or by pattern match:
 $ tio usb12
 ```
 
-Another configuration file example is available [here](example/tiorc).
+Another more elaborate configuration file example is available [here](example/tiorc).
 
 ## 4. Installation
 
@@ -243,21 +268,21 @@ reach out to its package maintainers team.
 
 Install latest stable version:
 ```
-    $ snap install tio
+$ snap install tio
 ```
 
 ### 4.3 Installation using brew (MacOS, Linux)
 
 If you have [brew](http://brew.sh) installed:
 ```
-    $ brew install tio
+$ brew install tio
 ```
 
 ### 4.4 Installation using MSYS2 (Windows)
 
 If you have [MSYS2](https://www.msys2.org) installed:
 ```
-    $ pacman -S tio
+$ pacman -S tio
 ```
 
 ### 4.5 Installation from source

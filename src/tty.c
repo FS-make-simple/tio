@@ -55,11 +55,11 @@
 #include "timestamp.h"
 #include "misc.h"
 
-#ifdef __APPLE__
+#if defined(__APPLE__)
 #define PATH_SERIAL_DEVICES "/dev/"
 #define PREFIX_TTY_DEVICES "tty."
-#elifdef __CYGWIN__
-#define PATH_SERIAL_DEVICES "/dev/serial/by-id/"
+#elif defined(__CYGWIN__)
+#define PATH_SERIAL_DEVICES "/dev/"
 #define PREFIX_TTY_DEVICES "ttyS"
 #else
 #define PATH_SERIAL_DEVICES "/dev/serial/by-id/"
@@ -84,6 +84,7 @@
 #define KEY_H 0x68
 #define KEY_L 0x6C
 #define KEY_SHIFT_L 0x4C
+#define KEY_M 0x6D
 #define KEY_P 0x70
 #define KEY_Q 0x71
 #define KEY_S 0x73
@@ -126,6 +127,7 @@ static bool map_o_cr_nl = false;
 static bool map_o_nl_crnl = false;
 static bool map_o_del_bs = false;
 static bool map_o_ltu = false;
+static bool map_o_msblsb = false;
 static char hex_chars[2];
 static unsigned char hex_char_index = 0;
 static char tty_buffer[BUFSIZ*2];
@@ -221,7 +223,7 @@ ssize_t tty_write(int fd, const void *buffer, size_t count)
             }
             bytes_written += retval;
 
-            if (option.output_line_delay && *(unsigned char*)buffer == '\r')
+            if (option.output_line_delay && *(unsigned char*)buffer == '\n')
             {
                 delay(option.output_line_delay);
             }
@@ -257,8 +259,14 @@ static void output_hex(char c)
 {
     hex_chars[hex_char_index++] = c;
 
+    printf("%c", c);
+
     if (hex_char_index == 2)
     {
+        usleep(100*1000);
+        printf("\b \b");
+        printf("\b \b");
+
         unsigned char hex_value = char_to_nibble(hex_chars[0]) << 4 | (char_to_nibble(hex_chars[1]) & 0x0F);
         hex_char_index = 0;
 
@@ -402,20 +410,22 @@ void handle_command_sequence(char input_char, char previous_char, char *output_c
         {
             case KEY_QUESTION:
                 tio_printf("Key commands:");
-                tio_printf(" ctrl-%c ?   List available key commands", option.prefix_key);
-                tio_printf(" ctrl-%c b   Send break", option.prefix_key);
-                tio_printf(" ctrl-%c c   Show configuration", option.prefix_key);
-                tio_printf(" ctrl-%c e   Toggle local echo mode", option.prefix_key);
-                tio_printf(" ctrl-%c g   Toggle serial port line", option.prefix_key);
-                tio_printf(" ctrl-%c h   Toggle hexadecimal mode", option.prefix_key);
-                tio_printf(" ctrl-%c l   Clear screen", option.prefix_key);
-                tio_printf(" ctrl-%c L   Show line states", option.prefix_key);
-                tio_printf(" ctrl-%c p   Pulse serial port line", option.prefix_key);
-                tio_printf(" ctrl-%c q   Quit", option.prefix_key);
-                tio_printf(" ctrl-%c s   Show statistics", option.prefix_key);
-                tio_printf(" ctrl-%c t   Toggle line timestamp mode", option.prefix_key);
-                tio_printf(" ctrl-%c U   Toggle conversion to uppercase on output", option.prefix_key);
-                tio_printf(" ctrl-%c v   Show version", option.prefix_key);
+                tio_printf(" ctrl-%c ?       List available key commands", option.prefix_key);
+                tio_printf(" ctrl-%c b       Send break", option.prefix_key);
+                tio_printf(" ctrl-%c c       Show configuration", option.prefix_key);
+                tio_printf(" ctrl-%c e       Toggle local echo mode", option.prefix_key);
+                tio_printf(" ctrl-%c g       Toggle serial port line", option.prefix_key);
+                tio_printf(" ctrl-%c h       Toggle hexadecimal mode", option.prefix_key);
+                tio_printf(" ctrl-%c l       Clear screen", option.prefix_key);
+                tio_printf(" ctrl-%c L       Show line states", option.prefix_key);
+                tio_printf(" ctrl-%c m       Toggle MSB to LSB bit order", option.prefix_key);
+                tio_printf(" ctrl-%c p       Pulse serial port line", option.prefix_key);
+                tio_printf(" ctrl-%c q       Quit", option.prefix_key);
+                tio_printf(" ctrl-%c s       Show statistics", option.prefix_key);
+                tio_printf(" ctrl-%c t       Toggle line timestamp mode", option.prefix_key);
+                tio_printf(" ctrl-%c U       Toggle conversion to uppercase on output", option.prefix_key);
+                tio_printf(" ctrl-%c v       Show version", option.prefix_key);
+                tio_printf(" ctrl-%c ctrl-%c  Send ctrl-%c character", option.prefix_key, option.prefix_key, option.prefix_key);
                 break;
 
             case KEY_SHIFT_L:
@@ -497,6 +507,20 @@ void handle_command_sequence(char input_char, char previous_char, char *output_c
                 printf("\033c");
                 break;
 
+            case KEY_M:
+                /* Toggle bit order */
+                if (!map_o_msblsb)
+                {
+                    map_o_msblsb = true;
+                    tio_printf("Switched to reverse bit order");
+                }
+                else
+                {
+                    map_o_msblsb = false;
+                    tio_printf("Switched to normal bit order");
+                }
+                break;
+
             case KEY_Q:
                 /* Exit upon ctrl-t q sequence */
                 exit(EXIT_SUCCESS);
@@ -546,6 +570,23 @@ void handle_command_sequence(char input_char, char previous_char, char *output_c
                 break;
 
             default:
+                /* Handle double prefix key input case */
+                if (input_char == option.prefix_code)
+                {
+                    static int count = 0;
+                    if (count++ == 1)
+                    {
+                        // Do not forward prefix characters excessively
+                        count = 0;
+                        break;
+                    }
+
+                    /* Forward prefix character to tty */
+                    *output_char = option.prefix_code;
+                    *forward = true;
+                    break;
+                }
+
                 /* Ignore unknown ctrl-t escaped keys */
                 break;
         }
@@ -841,6 +882,10 @@ void tty_configure(void)
             else if (strcmp(token, "OLTU") == 0)
             {
                 map_o_ltu = true;
+            }
+            else if (strcmp(token, "MSB2LSB") == 0)
+            {
+                map_o_msblsb = true;
             }
             else
             {
@@ -1187,7 +1232,7 @@ int tty_connect(void)
                     input_char = input_buffer[i];
 
                     /* Print timestamp on new line if enabled */
-                    if (next_timestamp && input_char != '\n' && input_char != '\r')
+                    if ((next_timestamp && input_char != '\n' && input_char != '\r') && !option.hex_mode)
                     {
                         now = timestamp_current_time();
                         if (now)
@@ -1201,8 +1246,19 @@ int tty_connect(void)
                         }
                     }
 
+                    /* Convert MSB to LSB bit order */
+                    if (map_o_msblsb)
+                    {
+                        char ch = input_char;
+                        input_char = 0;
+                        for (int j = 0; j < 8; ++j)
+                        {
+                            input_char |= ((1 << j) & ch) ? (1 << (7 - j)) : 0;
+                        }
+                    }
+
                     /* Map input character */
-                    if ((input_char == '\n') && (map_i_nl_crnl))
+                    if ((input_char == '\n') && (map_i_nl_crnl) && (!map_o_msblsb))
                     {
                         print('\r');
                         print('\n');

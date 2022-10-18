@@ -22,22 +22,7 @@
 
 #pragma once
 
-struct config_t
-{
-    const char *user;
-
-    char *path;
-    char *section_name;
-    char *match;
-
-    char *tty;
-    char *flow;
-    char *parity;
-    char *log_filename;
-    char *socket;
-    char *map;
-};
-
 void config_file_print(void);
 void config_file_parse(void);
 void config_exit(void);
+void config_file_show_sub_configurations(void);

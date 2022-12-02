@@ -112,7 +112,7 @@ static int data_handler(void *user, const char *section, const char *name,
     if (!strcmp(section, c.section_name))
     {
         // Set configuration parameter if found
-        if (!strcmp(name, "tty"))
+        if (!strcmp(name, "device") || !strcmp(name, "tty"))
         {
             asprintf(&c.tty, value, c.match);
             option.tty_device = c.tty;
@@ -301,6 +301,17 @@ static int data_handler(void *user, const char *section, const char *name,
         else if (!strcmp(name, "alert"))
         {
             option.alert = alert_option_parse(value);
+        }
+        else if (!strcmp(name, "mute"))
+        {
+            if (!strcmp(value, "enable"))
+            {
+                option.mute = true;
+            }
+            else if (!strcmp(value, "disable"))
+            {
+                option.mute = false;
+            }
         }
     }
 
@@ -493,7 +504,7 @@ void config_file_print(void)
 {
     if (c.path != NULL)
     {
-        tio_printf(" Path: %s", c.path);
+        tio_printf(" Active configuration file: %s", c.path);
         if (c.section_name != NULL)
         {
             tio_printf(" Active sub-configuration: %s", c.section_name);

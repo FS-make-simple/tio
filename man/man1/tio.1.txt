@@ -258,11 +258,9 @@ HEXADECIMAL MODE
 CONFIGURATION FILE
        Options can be set via configuration file using the INI format. tio uses the configuration file first found in the following locations in the order listed:
 
-       $XDG_CONFIG_HOME/tio/tiorc
+       $XDG_CONFIG_HOME/tio/config
 
-       $HOME/.config/tio/tiorc
-
-       $HOME/.tiorc
+       $HOME/.config/tio/config
 
        Labels can be used to group settings into named sub-configurations which can be activated from the command-line when starting tio.
 
@@ -443,4 +441,4 @@ WEBSITE
 AUTHOR
        Created by Martin Lund <martin.lund@keep-it-simple.com>.
 
-tio 2.4                                                                                                                              2022-11-02                                                                                                                               tio(1)
+tio 2.5                                                                                                                              2022-12-06                                                                                                                               tio(1)

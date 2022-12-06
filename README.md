@@ -211,9 +211,9 @@ If needed, the prefix key (ctrl-t) can be remapped via configuration file.
 
 Options can be set via the configuration file first found in any of the
 following locations in the order listed:
- - $XDG_CONFIG_HOME/tio/tiorc
- - $HOME/.config/tio/tiorc
- - $HOME/.tiorc
+
+ - $XDG_CONFIG_HOME/tio/config
+ - $HOME/.config/tio/config
 
 The configuration file supports sub-configurations using named sections which can
 be activated via the command-line by name or pattern. A sub-configuration

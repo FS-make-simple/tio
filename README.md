@@ -15,8 +15,8 @@
 
 [![](https://img.shields.io/circleci/build/gh/tio/tio?token=da7e7fd0d0ee99b9f986f8877dcdbe28f73d9e06)](https://circleci.com/gh/tio/tio/tree/master)
 [![](https://img.shields.io/github/v/release/tio/tio?sort=semver)](https://github.com/tio/tio/releases)
-[![](https://img.shields.io/tokei/lines/github/tio/tio)](https://github.com/tio/tio)
 [![](https://img.shields.io/repology/repositories/tio)](https://repology.org/project/tio/versions)
+[![](https://img.shields.io/tokei/lines/github/tio/tio)](https://github.com/tio/tio)
 
 ## 1. Introduction
 
@@ -211,9 +211,9 @@ If needed, the prefix key (ctrl-t) can be remapped via configuration file.
 
 Options can be set via the configuration file first found in any of the
 following locations in the order listed:
-
  - $XDG_CONFIG_HOME/tio/config
  - $HOME/.config/tio/config
+ - $HOME/.tioconfig
 
 The configuration file supports sub-configurations using named sections which can
 be activated via the command-line by name or pattern. A sub-configuration
@@ -253,7 +253,7 @@ Or by pattern match:
 $ tio usb12
 ```
 
-Another more elaborate configuration file example is available [here](example/tiorc).
+Another more elaborate configuration file example is available [here](example/config).
 
 ## 4. Installation
 
@@ -294,6 +294,10 @@ Install steps:
 ```
     $ make
 ```
+
+See meson\_options.txt for tio specific build options.
+
+Note: The meson install steps may differ depending on your specific system.
 
 
 ## 5. Contributing

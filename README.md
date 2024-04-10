@@ -11,12 +11,14 @@
 ![GitHub all releases](https://img.shields.io/github/downloads/FS-make-simple/tio/total)
 ![GitHub](https://img.shields.io/github/license/FS-make-simple/tio)
 
+[![tio](images/tio-icon.png)]()
+
 # tio - a simple serial device I/O tool
 
-[![](https://img.shields.io/circleci/build/gh/tio/tio?token=da7e7fd0d0ee99b9f986f8877dcdbe28f73d9e06)](https://circleci.com/gh/tio/tio/tree/master)
+[![](https://img.shields.io/circleci/build/github/tio/tio)](https://circleci.com/github/tio/tio/tree/master)
 [![](https://img.shields.io/github/v/release/tio/tio?sort=semver)](https://github.com/tio/tio/releases)
 [![](https://img.shields.io/repology/repositories/tio)](https://repology.org/project/tio/versions)
-[![](https://img.shields.io/tokei/lines/github/tio/tio)](https://github.com/tio/tio)
+<!-- [![](https://img.shields.io/tokei/lines/github/tio/tio)](https://github.com/tio/tio) -->
 
 ## 1. Introduction
 
@@ -34,7 +36,7 @@ To make a simpler serial device tool for talking with serial TTY devices with
 less focus on classic terminal/modem features and more focus on the needs of
 embedded developers and hackers.
 
-tio was originally created to replace
+tio was originally created as an alternative to 
 [screen](https://www.gnu.org/software/screen) for connecting to serial devices
 when used in combination with [tmux](https://tmux.github.io).
 
@@ -42,10 +44,11 @@ when used in combination with [tmux](https://tmux.github.io).
 
  * Easily connect to serial TTY devices
  * Automatic connect and reconnect
- * Sensible defaults
+ * Sensible defaults (115200 8n1)
  * Support for non-standard baud rates
- * Support for RS-485 mode
  * Support for mark and space parity
+ * X-modem (1K) and Y-modem file upload
+ * Support for RS-485 mode
  * List available serial devices by ID
  * Show RX/TX statistics
  * Toggle serial lines
@@ -55,9 +58,8 @@ when used in combination with [tmux](https://tmux.github.io).
  * Line timestamps
  * Support for delayed output per character
  * Support for delayed output per line
- * Hexadecimal mode
- * Log to file
- * Autogeneration of log filename
+ * Switchable independent input and output mode (normal vs hex)
+ * Log to file with automatic or manual naming of log file
  * Configuration file support
  * Activate sub-configurations by name or pattern
  * Redirect I/O to UNIX socket or IPv4/v6 network socket for scripting or TTY sharing
@@ -67,7 +69,11 @@ when used in combination with [tmux](https://tmux.github.io).
  * Configurable text color
  * Visual or audible alert on connect/disconnect
  * Remapping of prefix key
+ * Support NO_COLOR env variable as per no-color.org
  * Man page documentation
+ * Lua scripting support
+   * Manipulate port control lines at connect/reconnect (useful for microcontroller reset/boot etc.)
+   * Automate interaction with tty device (TBD)
  * Plays nicely with [tmux](https://tmux.github.io)
 
 ## 3. Usage
@@ -80,43 +86,49 @@ For more usage details please see the man page documentation
 The command-line interface is straightforward as reflected in the output from
 'tio --help':
 ```
- Usage: tio [<options>] <tty-device|sub-config>
+Usage: tio [<options>] <tty-device|sub-config>
 
- Connect to TTY device directly or via sub-configuration.
+Connect to TTY device directly or via sub-configuration.
 
- Options:
-   -b, --baudrate <bps>                   Baud rate (default: 115200)
-   -d, --databits 5|6|7|8                 Data bits (default: 8)
-   -f, --flow hard|soft|none              Flow control (default: none)
-   -s, --stopbits 1|2                     Stop bits (default: 1)
-   -p, --parity odd|even|none|mark|space  Parity (default: none)
-   -o, --output-delay <ms>                Output character delay (default: 0)
-   -O, --output-line-delay <ms>           Output line delay (default: 0)
-       --line-pulse-duration <duration>   Set line pulse duration
-   -n, --no-autoconnect                   Disable automatic connect
-   -e, --local-echo                       Enable local echo
-   -t, --timestamp                        Enable line timestamp
-       --timestamp-format <format>        Set timestamp format (default: 24hour)
-   -L, --list-devices                     List available serial devices
-   -l, --log                              Enable log to file
-       --log-file <filename>              Set log filename
-       --log-strip                        Strip control characters and escape sequences
-   -m, --map <flags>                      Map characters
-   -c, --color 0..255|bold|none|list      Colorize tio text (default: bold)
-   -S, --socket <socket>                  Redirect I/O to socket
-   -x, --hexadecimal                      Enable hexadecimal mode
-   -r, --response-wait                    Wait for line response then quit
-       --response-timeout <ms>            Response timeout (default: 100)
-       --rs-485                           Enable RS-485 mode
-       --rs-485-config <config>           Set RS-485 configuration
-       --alert bell|blink|none            Alert on connect/disconnect (default: none)
-   -v, --version                          Display version
-   -h, --help                             Display help
+Options:
+  -b, --baudrate <bps>                   Baud rate (default: 115200)
+  -d, --databits 5|6|7|8                 Data bits (default: 8)
+  -f, --flow hard|soft|none              Flow control (default: none)
+  -s, --stopbits 1|2                     Stop bits (default: 1)
+  -p, --parity odd|even|none|mark|space  Parity (default: none)
+  -o, --output-delay <ms>                Output character delay (default: 0)
+  -O, --output-line-delay <ms>           Output line delay (default: 0)
+      --line-pulse-duration <duration>   Set line pulse duration
+  -n, --no-autoconnect                   Disable automatic connect
+  -e, --local-echo                       Enable local echo
+      --input-mode normal|hex            Select input mode (default: normal)
+      --output-mode normal|hex           Select output mode (default: normal)
+  -t, --timestamp                        Enable line timestamp
+      --timestamp-format <format>        Set timestamp format (default: 24hour)
+  -L, --list-devices                     List available serial devices by ID
+  -l, --log                              Enable log to file
+      --log-file <filename>              Set log filename
+      --log-directory <path>             Set log directory path for automatic named logs
+      --log-append                       Append to log file
+      --log-strip                        Strip control characters and escape sequences
+  -m, --map <flags>                      Map characters
+  -c, --color 0..255|bold|none|list      Colorize tio text (default: bold)
+  -S, --socket <socket>                  Redirect I/O to socket
+  -r, --response-wait                    Wait for line response then quit
+      --response-timeout <ms>            Response timeout (default: 100)
+      --rs-485                           Enable RS-485 mode
+      --rs-485-config <config>           Set RS-485 configuration
+      --alert bell|blink|none            Alert on connect/disconnect (default: none)
+      --mute                             Mute tio
+      --script <string>                  Run script from string
+      --script-file <filename>           Run script from file
+      --script-run once|always|never     Run script on connect (default: always)
+  -v, --version                          Display version
+  -h, --help                             Display help
 
- Options and sub-configurations may be set via configuration file.
+Options and sub-configurations may be set via configuration file.
 
- See the man page for more details.
-
+See the man page for more details.
 ```
 
 By default tio automatically connects to the provided TTY device if present.
@@ -186,23 +198,30 @@ Various in session key commands are supported. When tio is started, press
 ctrl-t ? to list the available key commands.
 
 ```
-[20:19:12.040] Key commands:
-[20:19:12.040]  ctrl-t ?       List available key commands
-[20:19:12.040]  ctrl-t b       Send break
-[20:19:12.040]  ctrl-t c       Show configuration
-[20:19:12.040]  ctrl-t e       Toggle local echo mode
-[20:19:12.040]  ctrl-t f       Toggle log to file
-[20:19:12.040]  ctrl-t g       Toggle serial port line
-[20:19:12.040]  ctrl-t h       Toggle hexadecimal mode
-[20:19:12.040]  ctrl-t l       Clear screen
-[20:19:12.040]  ctrl-t L       Show line states
-[20:19:12.040]  ctrl-t p       Pulse serial port line
-[20:19:12.040]  ctrl-t q       Quit
-[20:19:12.041]  ctrl-t s       Show statistics
-[20:19:12.041]  ctrl-t t       Toggle line timestamp mode
-[20:19:12.041]  ctrl-t U       Toggle conversion to uppercase
-[20:19:12.041]  ctrl-t v       Show version
-[20:19:12.041]  ctrl-t ctrl-t  Send ctrl-t character
+[15:02:53.269] Key commands:
+[15:02:53.269]  ctrl-t ?       List available key commands
+[15:02:53.269]  ctrl-t b       Send break
+[15:02:53.269]  ctrl-t c       Show configuration
+[15:02:53.269]  ctrl-t e       Toggle local echo mode
+[15:02:53.269]  ctrl-t f       Toggle log to file
+[15:02:53.269]  ctrl-t F       Flush data I/O buffers
+[15:02:53.269]  ctrl-t g       Toggle serial port line
+[15:02:53.269]  ctrl-t i       Toggle input mode
+[15:02:53.269]  ctrl-t l       Clear screen
+[15:02:53.269]  ctrl-t L       Show line states
+[15:02:53.269]  ctrl-t m       Toggle MSB to LSB bit order
+[15:02:53.269]  ctrl-t o       Toggle output mode
+[15:02:53.269]  ctrl-t p       Pulse serial port line
+[15:02:53.269]  ctrl-t q       Quit
+[15:02:53.269]  ctrl-t r       Run script
+[15:02:53.269]  ctrl-t s       Show statistics
+[15:02:53.269]  ctrl-t t       Toggle line timestamp mode
+[15:02:53.269]  ctrl-t U       Toggle conversion to uppercase on output
+[15:02:53.269]  ctrl-t v       Show version
+[15:02:53.269]  ctrl-t x       Send file via Xmodem-1K
+[15:02:53.269]  ctrl-t X       Send file via Xmodem-CRC
+[15:02:53.269]  ctrl-t y       Send file via Ymodem
+[15:02:53.269]  ctrl-t ctrl-t Send ctrl-t character
 ```
 
 If needed, the prefix key (ctrl-t) can be remapped via configuration file.
@@ -269,8 +288,11 @@ reach out to its package maintainers team.
 
 Install latest stable version:
 ```
-$ snap install tio
+$ snap install tio --classic
 ```
+
+Note: Classic confinement is currently required due to limitations of the snapcraft framework.
+See [Issue #187](https://github.com/tio/tio/issues/187) for discussion.
 
 ### 4.3 Installation using brew (MacOS, Linux)
 
@@ -298,6 +320,15 @@ Install steps:
 See meson\_options.txt for tio specific build options.
 
 Note: The meson install steps may differ depending on your specific system.
+
+### 4.6 Known issues
+
+Getting permission access errors trying to open your serial device?
+
+Add your user to the group which allows serial device access. For example, to add your user to the 'dialout' group do:
+```
+$ sudo usermod -a -G dialout <username>
+```
 
 
 ## 5. Contributing

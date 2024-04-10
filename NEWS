@@ -1,5 +1,86 @@
 
-=== tio v2.5 ===
+=== tio v2.7 ===
+
+
+
+Changes since tio v2.6:
+
+Paul Ruizendaal:
+
+ * Add xmodem and ymodem file send support
+
+HiFiPhile:
+
+ * tty_stdin_input_thread(): write to pipe only if byte_count > 0.
+
+ * Ignore EINTR error.
+
+ * CYGWIN: Add support for "COM*" naming.
+
+Wes Koerber:
+
+ * chore: reorder log-strip and log-append
+
+   reorder to maintain consistency with documentation
+
+ * chore: update readme, bash completion, man page
+
+ * fix: support --log-append in cli options
+
+
+
+Changes since tio v2.5:
+
+ * Remove warning when using pattern option
+
+ * Add --log-append option
+
+   Add --log-append option which makes tio append to any existing log file.
+
+   This also changes the default behaviour of tio from appending to
+   overwriting any existing log file. Now you have to use this new option
+   to make tio append.
+
+ * Update man page
+
+ * Update README
+
+ * Fix line termination for response wait feature
+
+   The response wait feature waited for a line response, a string
+   terminated with either CR or NL. However, some devices may send a CR and
+   then their line content and then NL. This means tio will quit before
+   receiving and printing the line response. To solve this we simply ignore
+   the CR character and only consider lines terminated with a NL character.
+
+   This should work for all devices as lines are AFAIK always terminated
+   with either CRNL or a NL.
+
+ * Update tty device listing configuration
+
+   Cleanup and add FreeBSD tty device listing support.
+
+Braden Young:
+
+ * Move map variables to tty to keep them all in one spot
+
+ * Configure socket mapping flags from tty parsing logic. Remove duplicate parsing logic in socket
+
+ * Support input mapping modes for sockets
+
+Josh Soref:
+
+ * Various spelling fixes
+
+Peter van Dijk:
+
+ * avoid "warning: unused parameter" on setspeed stub
+
+ * use right /dev/ path on Haiku
+
+Bill Hass:
+
+ * Update README with details on snap confinement
 
 
 
@@ -524,7 +605,7 @@ Changes since tio v1.39:
    pipe data to tio which then forwards the data to the connected serial
    device.
 
-   Non ineractive means that tio does not react to interactive key commands
+   Non interactive means that tio does not react to interactive key commands
    in the incoming stream. This allows users to pipe binary data directly
    to the connected serial device.
 
@@ -653,7 +734,7 @@ Changes since tio v1.38:
    inherently inconsistent with how you define required arguments.
 
    To avoid confusion we decide to avoid this inconsistency by replacing
-   optional options with additional options with required argmuments.
+   optional options with additional options with required arguments.
 
  * Replace '1' with 'enable' in config files
 
@@ -1018,10 +1099,10 @@ Alban Bedel:
  * Fix out of tree builds
 
    Out of tree builds are currently broken because $(top_srcdir)src/include
-   is not in the search path. In tree builds are working because autconf add
+   is not in the search path. In tree builds are working because autoconf adds
    $(top_builddir)/src/include to the search path for the generated config.h.
    As $(top_builddir) and $(top_srcdir) are identical during in tree builds
-   the search path still end up beeing somehow correct.
+   the search path still end up being somehow correct.
 
    To fix this add -I$(srcdir)/include to the CPPFLAGS in Makefile.am.
 

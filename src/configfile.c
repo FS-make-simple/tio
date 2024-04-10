@@ -60,6 +60,9 @@ struct config_t
     char *log_filename;
     char *socket;
     char *map;
+    char *script;
+    char *script_filename;
+    bool script_run;
 };
 
 static struct config_t c;
@@ -198,6 +201,10 @@ static int data_handler(void *user, const char *section, const char *name,
             asprintf(&c.log_filename, "%s", value);
             option.log_filename = c.log_filename;
         }
+        else if (!strcmp(name, "log-append"))
+        {
+            option.log_append = read_boolean(value, name);
+        }
         else if (!strcmp(name, "log-strip"))
         {
             option.log_strip = read_boolean(value, name);
@@ -206,9 +213,13 @@ static int data_handler(void *user, const char *section, const char *name,
         {
             option.local_echo = read_boolean(value, name);
         }
-        else if (!strcmp(name, "hexadecimal"))
+        else if (!strcmp(name, "input-mode"))
         {
-            option.hex_mode = read_boolean(value, name);
+            option.input_mode = input_mode_option_parse(value);
+        }
+        else if (!strcmp(name, "output-mode"))
+        {
+            option.output_mode = output_mode_option_parse(value);
         }
         else if (!strcmp(name, "timestamp"))
         {
@@ -255,7 +266,11 @@ static int data_handler(void *user, const char *section, const char *name,
         }
         else if (!strcmp(name, "prefix-ctrl-key"))
         {
-            if (ctrl_key_code(value[0]) > 0)
+            if (!strcmp(value, "none"))
+            {
+                option.prefix_enabled = false;
+            }
+            else if (ctrl_key_code(value[0]) > 0)
             {
                 option.prefix_code = ctrl_key_code(value[0]);
                 option.prefix_key = value[0];
@@ -284,6 +299,24 @@ static int data_handler(void *user, const char *section, const char *name,
         else if (!strcmp(name, "mute"))
         {
             option.mute = read_boolean(value, name);
+        }
+        else if (!strcmp(name, "pattern"))
+        {
+            // Do nothing
+        }
+        else if (!strcmp(name, "script"))
+        {
+            asprintf(&c.script, "%s", value);
+            option.script = c.script;
+        }
+        else if (!strcmp(name, "script-file"))
+        {
+            asprintf(&c.script_filename, "%s", value);
+            option.script_filename = c.script_filename;
+        }
+        else if (!strcmp(name, "script-run"))
+        {
+            option.script_run = script_run_option_parse(value);
         }
         else
         {

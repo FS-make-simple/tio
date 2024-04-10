@@ -1,7 +1,7 @@
 /*
  * tio - a simple serial terminal I/O tool
  *
- * Copyright (c) 2014-2022  Martin Lund
+ * Copyright (c) 2014-2024  Martin Lund
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -21,14 +21,12 @@
 
 #pragma once
 
-#include <stdbool.h>
+enum script_run_t
+{
+    SCRIPT_RUN_ONCE,
+    SCRIPT_RUN_ALWAYS,
+    SCRIPT_RUN_NEVER,
+    SCRIPT_RUN_END,
+};
 
-#define UNUSED(expr) do { (void)(expr); } while (0)
-
-char * current_time(void);
-void delay(long ms);
-long string_to_long(char *string);
-int ctrl_key_code(unsigned char key);
-void alert_connect(void);
-void alert_disconnect(void);
-bool fs_dir_exists(const char *path);
+void script_run(int fd);

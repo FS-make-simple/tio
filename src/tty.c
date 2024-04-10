@@ -55,21 +55,36 @@
 #include "alert.h"
 #include "timestamp.h"
 #include "misc.h"
+#include "script.h"
+#include "xymodem.h"
 
-#if defined(__APPLE__)
+/* tty device listing configuration */
+
+#if defined(__linux__)
+#define PATH_SERIAL_DEVICES "/dev/serial/by-id/"
+#define PREFIX_TTY_DEVICES ""
+#elif defined(__FreeBSD__)
+#define PATH_SERIAL_DEVICES "/dev/"
+#define PREFIX_TTY_DEVICES "cua"
+#elif defined(__APPLE__)
 #define PATH_SERIAL_DEVICES "/dev/"
 #define PREFIX_TTY_DEVICES "tty."
 #elif defined(__CYGWIN__)
 #define PATH_SERIAL_DEVICES "/dev/"
 #define PREFIX_TTY_DEVICES "ttyS"
-#else
-#define PATH_SERIAL_DEVICES "/dev/serial/by-id/"
+#elif defined(__HAIKU__)
+#define PATH_SERIAL_DEVICES "/dev/ports/"
 #define PREFIX_TTY_DEVICES ""
+#else
+#define PATH_SERIAL_DEVICES "/dev/"
+#define PREFIX_TTY_DEVICES "tty"
 #endif
 
 #ifndef CMSPAR
 #define CMSPAR   010000000000
 #endif
+
+#define LINE_SIZE_MAX 1000
 
 #define KEY_0 0x30
 #define KEY_1 0x31
@@ -84,24 +99,42 @@
 #define KEY_F 0x66
 #define KEY_SHIFT_F 0x46
 #define KEY_G 0x67
-#define KEY_H 0x68
+#define KEY_I 0x69
 #define KEY_L 0x6C
 #define KEY_SHIFT_L 0x4C
 #define KEY_M 0x6D
+#define KEY_O 0x6F
 #define KEY_P 0x70
 #define KEY_Q 0x71
+#define KEY_R 0x72
 #define KEY_S 0x73
 #define KEY_T 0x74
 #define KEY_U 0x55
 #define KEY_V 0x76
+#define KEY_X 0x78
+#define KEY_Y 0x79
 #define KEY_Z 0x7a
 
-enum line_mode_t
+typedef enum
 {
-    LINE_OFF,
     LINE_TOGGLE,
     LINE_PULSE
-};
+} tty_line_mode_t;
+
+typedef enum
+{
+    SUBCOMMAND_NONE,
+    SUBCOMMAND_LINE_TOGGLE,
+    SUBCOMMAND_LINE_PULSE,
+    SUBCOMMAND_XMODEM,
+} sub_command_t;
+
+typedef struct
+{
+    int mask;
+    bool value;
+    bool reserved;
+} tty_line_config_t;
 
 const char random_array[] =
 {
@@ -118,6 +151,11 @@ const char random_array[] =
 };
 
 bool interactive_mode = true;
+bool map_i_nl_cr = false;
+bool map_i_cr_nl = false;
+bool map_ign_cr = false;
+
+char key_hit = 0xff;
 
 static struct termios tio, tio_old, stdout_new, stdout_old, stdin_new, stdin_old;
 static unsigned long rx_total = 0, tx_total = 0;
@@ -125,11 +163,13 @@ static bool connected = false;
 static bool standard_baudrate = true;
 static void (*print)(char c);
 static int fd;
+static bool map_i_ff_escc = false;
 static bool map_i_nl_crnl = false;
 static bool map_o_cr_nl = false;
 static bool map_o_nl_crnl = false;
 static bool map_o_del_bs = false;
 static bool map_o_ltu = false;
+static bool map_o_nulbrk = false;
 static bool map_o_msblsb = false;
 static char hex_chars[2];
 static unsigned char hex_char_index = 0;
@@ -139,6 +179,8 @@ static char *tty_buffer_write_ptr = tty_buffer;
 static pthread_t thread;
 static int pipefd[2];
 static pthread_mutex_t mutex_input_ready = PTHREAD_MUTEX_INITIALIZER;
+static char line[LINE_SIZE_MAX];
+static tty_line_config_t line_config[6] = { };
 
 static void optional_local_echo(char c)
 {
@@ -146,11 +188,15 @@ static void optional_local_echo(char c)
     {
         return;
     }
+
     print(c);
+
     if (option.log)
     {
         log_putc(c);
     }
+
+    print_tainted_set();
 }
 
 inline static bool is_valid_hex(char c)
@@ -285,6 +331,11 @@ void *tty_stdin_input_thread(void *arg)
         byte_count = read(STDIN_FILENO, input_buffer, BUFSIZ);
         if (byte_count < 0)
         {
+            /* No error actually occurred */
+            if (errno == EINTR)
+            {
+                continue;
+            }
             tio_warning_printf("Could not read from stdin (%s)", strerror(errno));
         }
         else if (byte_count == 0)
@@ -302,9 +353,17 @@ void *tty_stdin_input_thread(void *arg)
             // Process quit and flush key command
             for (int i = 0; i<byte_count; i++)
             {
+                // first do key hit check for xmodem abort
+                if (!key_hit) {
+                    key_hit = input_buffer[i];
+                    byte_count--;
+                    memcpy(input_buffer+i, input_buffer+i+1, byte_count-i);
+                    continue;
+                }
+
                 input_char = input_buffer[i];
 
-                if (previous_char == option.prefix_code)
+                if (option.prefix_enabled && previous_char == option.prefix_code)
                 {
                     if (input_char == option.prefix_code)
                     {
@@ -330,7 +389,7 @@ void *tty_stdin_input_thread(void *arg)
         }
 
         // Write all bytes read to pipe
-        while (byte_count)
+        while (byte_count > 0)
         {
             bytes_written = write(pipefd[1], input_buffer, byte_count);
             if (bytes_written < 0)
@@ -360,22 +419,28 @@ void tty_input_thread_wait_ready(void)
     pthread_mutex_lock(&mutex_input_ready);
 }
 
-static void output_hex(char c)
+static void handle_hex_prompt(char c)
 {
     hex_chars[hex_char_index++] = c;
 
     printf("%c", c);
+    print_tainted_set();
 
     if (hex_char_index == 2)
     {
         usleep(100*1000);
-        printf("\b \b");
-        printf("\b \b");
+        if (option.local_echo == false)
+        {
+            printf("\b \b");
+            printf("\b \b");
+        }
+        else
+        {
+            printf(" ");
+        }
 
         unsigned char hex_value = char_to_nibble(hex_chars[0]) << 4 | (char_to_nibble(hex_chars[1]) & 0x0F);
         hex_char_index = 0;
-
-        optional_local_echo(hex_value);
 
         ssize_t status = tty_write(fd, &hex_value, 1);
         if (status < 0)
@@ -389,67 +454,210 @@ static void output_hex(char c)
     }
 }
 
-static void toggle_line(const char *line_name, int mask, enum line_mode_t line_mode)
+static const char *tty_line_name(int mask)
 {
-    int state;
-
-    if (line_mode == LINE_TOGGLE)
+    switch (mask)
     {
-        // Toggle line
-        if (ioctl(fd, TIOCMGET, &state) < 0)
+        case TIOCM_DTR:
+            return "DTR";
+        case TIOCM_RTS:
+            return "RTS";
+        case TIOCM_CTS:
+            return "CTS";
+        case TIOCM_DSR:
+            return "DSR";
+        case TIOCM_CD:
+            return "CD";
+        case TIOCM_RI:
+            return "RI";
+        default:
+            return NULL;
+    }
+}
+
+void tty_line_config(int mask, bool value)
+{
+    int i = 0;
+
+    for (i=0; i<6; i++)
+    {
+        if ((line_config[i].mask == mask) || (line_config[i].reserved == false))
         {
-            tio_warning_printf("Could not get line state (%s)", strerror(errno));
+            line_config[i].mask = mask;
+            line_config[i].value = value;
+            line_config[i].reserved = true;
+            break;
         }
-        else
+    }
+}
+
+void tty_line_config_apply(void)
+{
+    int i = 0;
+    static int state;
+
+    if (ioctl(fd, TIOCMGET, &state) < 0)
+    {
+        tio_warning_printf("Could not get line state (%s)", strerror(errno));
+        return;
+    }
+
+    for (i=0; i<6; i++)
+    {
+        if (line_config[i].reserved)
         {
-            if (state & mask)
+            if (line_config[i].value)
             {
-                state &= ~mask;
-                tio_printf("Setting %s to LOW", line_name);
+                // High
+                state &= ~line_config[i].mask;
+                tio_printf("Setting %s to HIGH", tty_line_name(line_config[i].mask));
             }
             else
             {
-                state |= mask;
-                tio_printf("Setting %s to HIGH", line_name);
+                // Low
+                state |= line_config[i].mask;
+                tio_printf("Setting %s to LOW", tty_line_name(line_config[i].mask));
             }
-            if (ioctl(fd, TIOCMSET, &state) < 0)
-                tio_warning_printf("Could not set line state (%s)", strerror(errno));
+
+            line_config[i].reserved = true;
         }
-    } else if (line_mode == LINE_PULSE)
+    }
+
+    if (ioctl(fd, TIOCMSET, &state) < 0)
     {
-        int duration = 0;
-        // Pulse line
-        toggle_line(line_name, mask, LINE_TOGGLE);
-        switch (mask)
+        tio_warning_printf("Could not set line state configuration (%s)", strerror(errno));
+    }
+
+    // Reset configuration
+    for (i=0; i<6; i++)
+    {
+        line_config[i].reserved = false;
+        line_config[i].mask = -1;
+    }
+}
+
+void tty_line_set(int fd, int mask, bool value)
+{
+    int state;
+
+    if (ioctl(fd, TIOCMGET, &state) < 0)
+    {
+        tio_warning_printf("Could not get line state (%s)", strerror(errno));
+        return;
+    }
+
+    if (value)
+    {
+        state &= ~mask;
+        tio_printf("Setting %s to HIGH", tty_line_name(mask));
+    }
+    else
+    {
+        state |= mask;
+        tio_printf("Setting %s to LOW", tty_line_name(mask));
+    }
+
+    if (ioctl(fd, TIOCMSET, &state) < 0)
+    {
+        tio_warning_printf("Could not set line state (%s)", strerror(errno));
+    }
+}
+
+void tty_line_toggle(int fd, int mask)
+{
+    int state;
+
+    if (ioctl(fd, TIOCMGET, &state) < 0)
+    {
+        tio_warning_printf("Could not get line state (%s)", strerror(errno));
+        return;
+    }
+
+    if (state & mask)
+    {
+        state &= ~mask;
+        tio_printf("Setting %s to HIGH", tty_line_name(mask));
+    }
+    else
+    {
+        state |= mask;
+        tio_printf("Setting %s to LOW", tty_line_name(mask));
+    }
+
+    if (ioctl(fd, TIOCMSET, &state) < 0)
+    {
+        tio_warning_printf("Could not set line state (%s)", strerror(errno));
+    }
+}
+
+static void tty_line_pulse(int fd, int mask, unsigned int duration)
+{
+    tty_line_toggle(fd, mask);
+
+    if (duration > 0)
+    {
+        tio_printf("Waiting %d ms", duration);
+        delay(duration);
+    }
+
+    tty_line_toggle(fd, mask);
+}
+
+static void tty_line_poke(int fd, int mask, tty_line_mode_t mode, unsigned int duration)
+{
+    switch (mode)
+    {
+        case LINE_TOGGLE:
+            tty_line_toggle(fd, mask);
+            break;
+
+        case LINE_PULSE:
+            tty_line_pulse(fd, mask, duration);
+            break;
+    }
+}
+
+static int tio_readln(void)
+{
+    char *p = line;
+
+    /* Read line, accept BS and DEL as rubout characters */
+    for (p = line ; p < &line[LINE_SIZE_MAX-1]; )
+    {
+        if (read(pipefd[0], p, 1) > 0)
         {
-            case TIOCM_DTR:
-                duration = option.dtr_pulse_duration;
-                break;
-            case TIOCM_RTS:
-                duration = option.rts_pulse_duration;
-                break;
-            case TIOCM_CTS:
-                duration = option.cts_pulse_duration;
-                break;
-            case TIOCM_DSR:
-                duration = option.dsr_pulse_duration;
-                break;
-            case TIOCM_CD:
-                duration = option.dcd_pulse_duration;
-                break;
-            case TIOCM_RI:
-                duration = option.ri_pulse_duration;
-                break;
-            default:
-                duration = 0;
-                break;
+            if (*p == 0x08 || *p == 0x7f)
+            {
+                if (p > line )
+                {
+                    write(STDOUT_FILENO, "\b \b", 3);
+                    p--;
+                }
+                continue;
+            }
+            write(STDOUT_FILENO, p, 1);
+            if (*p == '\r') break;
+            p++;
         }
-        if (duration > 0)
-        {
-            tio_printf("Waiting %d ms", duration);
-            delay(duration);
-        }
-        toggle_line(line_name, mask, LINE_TOGGLE);
+    }
+    *p = 0;
+    return (p - line);
+}
+
+void tty_output_mode_set(output_mode_t mode)
+{
+    switch (mode)
+    {
+        case OUTPUT_MODE_NORMAL:
+            print = print_normal;
+            break;
+
+        case OUTPUT_MODE_HEX:
+            print = print_hex;
+            break;
+
+        case OUTPUT_MODE_END:
+            break;
     }
 }
 
@@ -458,7 +666,8 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
     char unused_char;
     bool unused_bool;
     int state;
-    static enum line_mode_t line_mode = LINE_OFF;
+    static tty_line_mode_t line_mode;
+    static sub_command_t sub_command = SUBCOMMAND_NONE;
     static char previous_char = 0;
 
     /* Ignore unused arguments */
@@ -472,42 +681,78 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
         forward = &unused_bool;
     }
 
-    if (line_mode)
+    // Handle sub commands
+    if (sub_command)
     {
-        // Handle line toggle number action
         *forward = false;
-        switch (input_char)
+
+        switch (sub_command)
         {
-            case KEY_0:
-                toggle_line("DTR", TIOCM_DTR, line_mode);
+            case SUBCOMMAND_NONE:
                 break;
-            case KEY_1:
-                toggle_line("RTS", TIOCM_RTS, line_mode);
+
+            case SUBCOMMAND_LINE_TOGGLE:
+            case SUBCOMMAND_LINE_PULSE:
+                switch (input_char)
+                {
+                    case KEY_0:
+                        tty_line_poke(fd, TIOCM_DTR, line_mode, option.dtr_pulse_duration);
+                        break;
+                    case KEY_1:
+                        tty_line_poke(fd, TIOCM_RTS, line_mode, option.rts_pulse_duration);
+                        break;
+                    case KEY_2:
+                        tty_line_poke(fd, TIOCM_CTS, line_mode, option.cts_pulse_duration);
+                        break;
+                    case KEY_3:
+                        tty_line_poke(fd, TIOCM_DSR, line_mode, option.dsr_pulse_duration);
+                        break;
+                    case KEY_4:
+                        tty_line_poke(fd, TIOCM_CD, line_mode, option.dcd_pulse_duration);
+                        break;
+                    case KEY_5:
+                        tty_line_poke(fd, TIOCM_RI, line_mode, option.ri_pulse_duration);
+                        break;
+                    default:
+                        tio_warning_printf("Invalid line number");
+                        break;
+                }
                 break;
-            case KEY_2:
-                toggle_line("CTS", TIOCM_CTS, line_mode);
-                break;
-            case KEY_3:
-                toggle_line("DSR", TIOCM_DSR, line_mode);
-                break;
-            case KEY_4:
-                toggle_line("DCD", TIOCM_CD, line_mode);
-                break;
-            case KEY_5:
-                toggle_line("RI", TIOCM_RI, line_mode);
-                break;
-            default:
-                tio_warning_printf("Invalid line number");
+
+            case SUBCOMMAND_XMODEM:
+                switch (input_char)
+                {
+                    case KEY_0:
+                        tio_printf("Send file with XMODEM-1K");
+                        tio_printf_raw("Enter file name: ");
+                        if (tio_readln())
+                        {
+                            tio_printf("Sending file '%s'  ", line);
+                            tio_printf("Press any key to abort transfer");
+                            tio_printf("%s", xymodem_send(fd, line, XMODEM_CRC) < 0 ? "Aborted" : "Done");
+                        }
+                        break;
+
+                    case KEY_1:
+                        tio_printf("Send file with XMODEM-CRC");
+                        tio_printf_raw("Enter file name: ");
+                        if (tio_readln())
+                        {
+                            tio_printf("Sending file '%s'  ", line);
+                            tio_printf("Press any key to abort transfer");
+                            tio_printf("%s", xymodem_send(fd, line, XMODEM_CRC) < 0 ? "Aborted" : "Done");
+                        }
+                        break;
+                }
                 break;
         }
 
-        line_mode = LINE_OFF;
-
+        sub_command = SUBCOMMAND_NONE;
         return;
     }
 
     /* Handle escape key commands */
-    if (previous_char == option.prefix_code)
+    if (option.prefix_enabled && previous_char == option.prefix_code)
     {
         /* Do not forward input char to output by default */
         *forward = false;
@@ -522,6 +767,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
             return;
         }
 
+        // Handle commands
         switch (input_char)
         {
             case KEY_QUESTION:
@@ -533,17 +779,21 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                 tio_printf(" ctrl-%c f       Toggle log to file", option.prefix_key);
                 tio_printf(" ctrl-%c F       Flush data I/O buffers", option.prefix_key);
                 tio_printf(" ctrl-%c g       Toggle serial port line", option.prefix_key);
-                tio_printf(" ctrl-%c h       Toggle hexadecimal mode", option.prefix_key);
+                tio_printf(" ctrl-%c i       Toggle input mode", option.prefix_key);
                 tio_printf(" ctrl-%c l       Clear screen", option.prefix_key);
                 tio_printf(" ctrl-%c L       Show line states", option.prefix_key);
                 tio_printf(" ctrl-%c m       Toggle MSB to LSB bit order", option.prefix_key);
+                tio_printf(" ctrl-%c o       Toggle output mode", option.prefix_key);
                 tio_printf(" ctrl-%c p       Pulse serial port line", option.prefix_key);
                 tio_printf(" ctrl-%c q       Quit", option.prefix_key);
+                tio_printf(" ctrl-%c r       Run script", option.prefix_key);
                 tio_printf(" ctrl-%c s       Show statistics", option.prefix_key);
                 tio_printf(" ctrl-%c t       Toggle line timestamp mode", option.prefix_key);
                 tio_printf(" ctrl-%c U       Toggle conversion to uppercase on output", option.prefix_key);
                 tio_printf(" ctrl-%c v       Show version", option.prefix_key);
-                tio_printf(" ctrl-%c ctrl-%c  Send ctrl-%c character", option.prefix_key, option.prefix_key, option.prefix_key);
+                tio_printf(" ctrl-%c x       Send file via Xmodem", option.prefix_key);
+                tio_printf(" ctrl-%c y       Send file via Ymodem", option.prefix_key);
+                tio_printf(" ctrl-%c ctrl-%c Send ctrl-%c character", option.prefix_key, option.prefix_key, option.prefix_key);
                 break;
 
             case KEY_SHIFT_L:
@@ -553,12 +803,12 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                     break;
                 }
                 tio_printf("Line states:");
-                tio_printf(" DTR: %s", (state & TIOCM_DTR) ? "HIGH" : "LOW");
-                tio_printf(" RTS: %s", (state & TIOCM_RTS) ? "HIGH" : "LOW");
-                tio_printf(" CTS: %s", (state & TIOCM_CTS) ? "HIGH" : "LOW");
-                tio_printf(" DSR: %s", (state & TIOCM_DSR) ? "HIGH" : "LOW");
-                tio_printf(" DCD: %s", (state & TIOCM_CD) ? "HIGH" : "LOW");
-                tio_printf(" RI : %s", (state & TIOCM_RI) ? "HIGH" : "LOW");
+                tio_printf(" DTR: %s", (state & TIOCM_DTR) ? "LOW" : "HIGH");
+                tio_printf(" RTS: %s", (state & TIOCM_RTS) ? "LOW" : "HIGH");
+                tio_printf(" CTS: %s", (state & TIOCM_CTS) ? "LOW" : "HIGH");
+                tio_printf(" DSR: %s", (state & TIOCM_DSR) ? "LOW" : "HIGH");
+                tio_printf(" DCD: %s", (state & TIOCM_CD) ? "LOW" : "HIGH");
+                tio_printf(" RI : %s", (state & TIOCM_RI) ? "LOW" : "HIGH");
                 break;
 
             case KEY_F:
@@ -582,26 +832,28 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
 
             case KEY_G:
                 tio_printf("Please enter which serial line number to toggle:");
-                tio_printf(" DTR (0)");
-                tio_printf(" RTS (1)");
-                tio_printf(" CTS (2)");
-                tio_printf(" DSR (3)");
-                tio_printf(" DCD (4)");
-                tio_printf(" RI  (5)");
-                // Process next input character as part of the line toggle step
+                tio_printf("(0) DTR");
+                tio_printf("(1) RTS");
+                tio_printf("(2) CTS");
+                tio_printf("(3) DSR");
+                tio_printf("(4) DCD");
+                tio_printf("(5) RI");
                 line_mode = LINE_TOGGLE;
+                // Process next input character as sub command
+                sub_command = SUBCOMMAND_LINE_TOGGLE;
                 break;
 
             case KEY_P:
                 tio_printf("Please enter which serial line number to pulse:");
-                tio_printf(" DTR (0)");
-                tio_printf(" RTS (1)");
-                tio_printf(" CTS (2)");
-                tio_printf(" DSR (3)");
-                tio_printf(" DCD (4)");
-                tio_printf(" RI  (5)");
-                // Process next input character as part of the line pulse step
+                tio_printf("(0) DTR");
+                tio_printf("(1) RTS");
+                tio_printf("(2) CTS");
+                tio_printf("(3) DSR");
+                tio_printf("(4) DCD");
+                tio_printf("(5) RI");
                 line_mode = LINE_PULSE;
+                // Process next input character as sub command
+                sub_command = SUBCOMMAND_LINE_PULSE;
                 break;
 
             case KEY_B:
@@ -623,19 +875,42 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                 tio_printf("Switched local echo %s", option.local_echo ? "on" : "off");
                 break;
 
-            case KEY_H:
-                /* Toggle hexadecimal printing mode */
-                if (!option.hex_mode)
+            case KEY_I:
+                option.input_mode += 1;
+                switch (option.input_mode)
                 {
-                    print = print_hex;
-                    option.hex_mode = true;
-                    tio_printf("Switched to hexadecimal mode");
+                    case INPUT_MODE_NORMAL:
+                        break;
+
+                    case INPUT_MODE_HEX:
+                        option.input_mode = INPUT_MODE_HEX;
+                        tio_printf("Switched to hex input mode");
+                        break;
+
+                    case INPUT_MODE_END:
+                        option.input_mode = INPUT_MODE_NORMAL;
+                        tio_printf("Switched to normal input mode");
+                        break;
                 }
-                else
+                break;
+
+            case KEY_O:
+                option.output_mode += 1;
+                switch (option.output_mode)
                 {
-                    print = print_normal;
-                    option.hex_mode = false;
-                    tio_printf("Switched to normal mode");
+                    case OUTPUT_MODE_NORMAL:
+                        break;
+
+                    case OUTPUT_MODE_HEX:
+                        tty_output_mode_set(OUTPUT_MODE_HEX);
+                        tio_printf("Switched to hex output mode");
+                        break;
+
+                    case OUTPUT_MODE_END:
+                        option.output_mode = OUTPUT_MODE_NORMAL;
+                        tty_output_mode_set(OUTPUT_MODE_NORMAL);
+                        tio_printf("Switched to normal output mode");
+                        break;
                 }
                 break;
 
@@ -661,6 +936,11 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
             case KEY_Q:
                 /* Exit upon ctrl-t q sequence */
                 exit(EXIT_SUCCESS);
+
+            case KEY_R:
+                /* Run script */
+                script_run(fd);
+                break;
 
             case KEY_S:
                 /* Show tx/rx statistics upon ctrl-t s sequence */
@@ -700,6 +980,24 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
 
             case KEY_V:
                 tio_printf("tio v%s", VERSION);
+                break;
+
+            case KEY_X:
+                tio_printf("Please enter which X modem protocol to use:");
+                tio_printf(" (0) XMODEM-1K");
+                tio_printf(" (1) XMODEM-CRC");
+                // Process next input character as sub command
+                sub_command = SUBCOMMAND_XMODEM;
+                break;
+
+            case KEY_Y:
+                tio_printf("Send file with YMODEM");
+                tio_printf_raw("Enter file name: ");
+                if (tio_readln()) {
+                    tio_printf("Sending file '%s'  ", line);
+                    tio_printf("Press any key to abort transfer");
+                    tio_printf("%s", xymodem_send(fd, line, YMODEM) < 0 ? "Aborted" : "Done");
+                }
                 break;
 
             case KEY_Z:
@@ -976,14 +1274,17 @@ void tty_configure(void)
             if (strcmp(token,"INLCR") == 0)
             {
                 tio.c_iflag |= INLCR;
+                map_i_nl_cr = true;
             }
             else if (strcmp(token,"IGNCR") == 0)
             {
                 tio.c_iflag |= IGNCR;
+                map_ign_cr = true;
             }
             else if (strcmp(token,"ICRNL") == 0)
             {
                 tio.c_iflag |= ICRNL;
+                map_i_cr_nl = true;
             }
             else if (strcmp(token,"OCRNL") == 0)
             {
@@ -992,6 +1293,10 @@ void tty_configure(void)
             else if (strcmp(token,"ODELBS") == 0)
             {
                 map_o_del_bs = true;
+            }
+            else if (strcmp(token,"IFFESCC") == 0)
+            {
+                map_i_ff_escc = true;
             }
             else if (strcmp(token,"INLCRNL") == 0)
             {
@@ -1004,6 +1309,10 @@ void tty_configure(void)
             else if (strcmp(token, "OLTU") == 0)
             {
                 map_o_ltu = true;
+            }
+            else if (strcmp(token, "ONULBRK") == 0)
+            {
+                map_o_nulbrk = true;
             }
             else if (strcmp(token, "MSB2LSB") == 0)
             {
@@ -1171,22 +1480,48 @@ void forward_to_tty(int fd, char output_char)
     }
     else
     {
-        if (option.hex_mode)
+        switch (option.output_mode)
         {
-            output_hex(output_char);
-        }
-        else
-        {
-            /* Send output to tty device */
-            optional_local_echo(output_char);
-            status = tty_write(fd, &output_char, 1);
-            if (status < 0)
-            {
-                tio_warning_printf("Could not write to tty device");
-            }
+            case OUTPUT_MODE_NORMAL:
+                if (option.input_mode == INPUT_MODE_HEX)
+                {
+                    handle_hex_prompt(output_char);
+                }
+                else
+                {
+                    /* Send output to tty device */
+                    optional_local_echo(output_char);
+                    if ((output_char == 0) && (map_o_nulbrk))
+                    {
+                        status = tcsendbreak(fd, 0);
+                    }
+                    else
+                    {
+                        status = tty_write(fd, &output_char, 1);
+                    }
+                    if (status < 0)
+                    {
+                        tio_warning_printf("Could not write to tty device");
+                    }
 
-            /* Update transmit statistics */
-            tx_total++;
+                    /* Update transmit statistics */
+                    tx_total++;
+                }
+                break;
+
+            case OUTPUT_MODE_HEX:
+                if (option.input_mode == INPUT_MODE_HEX)
+                {
+                    handle_hex_prompt(output_char);
+                }
+                else
+                {
+                    optional_local_echo(output_char);
+                }
+                break;
+
+            case OUTPUT_MODE_END:
+                break;
         }
     }
 }
@@ -1245,14 +1580,7 @@ int tty_connect(void)
     }
 
     /* Manage print output mode */
-    if (option.hex_mode)
-    {
-        print = print_hex;
-    }
-    else
-    {
-        print = print_normal;
-    }
+    tty_output_mode_set(option.output_mode);
 
     /* Save current port settings */
     if (tcgetattr(fd, &tio_old) < 0)
@@ -1298,6 +1626,17 @@ int tty_connect(void)
         {
             tio_error_printf_silent("Could not set baudrate speed (%s)", strerror(errno));
             goto error_setspeed;
+        }
+    }
+
+    /* Manage script activation */
+    if (option.script_run != SCRIPT_RUN_NEVER)
+    {
+        script_run(fd);
+
+        if (option.script_run == SCRIPT_RUN_ONCE)
+        {
+            option.script_run = SCRIPT_RUN_NEVER;
         }
     }
 
@@ -1351,7 +1690,7 @@ int tty_connect(void)
                     input_char = input_buffer[i];
 
                     /* Print timestamp on new line if enabled */
-                    if ((next_timestamp && input_char != '\n' && input_char != '\r') && !option.hex_mode)
+                    if ((next_timestamp && input_char != '\n' && input_char != '\r') && (option.output_mode == OUTPUT_MODE_NORMAL))
                     {
                         now = timestamp_current_time();
                         if (now)
@@ -1386,6 +1725,11 @@ int tty_connect(void)
                             next_timestamp = true;
                         }
                     }
+                    else if ((input_char == '\f') && (map_i_ff_escc) && (!map_o_msblsb))
+                    {
+                        print('\e');
+                        print('c');
+                    }
                     else
                     {
                         /* Print received tty character to stdout */
@@ -1409,7 +1753,7 @@ int tty_connect(void)
 
                     if (option.response_wait)
                     {
-                        if ((input_char == '\r') || (input_char == '\n'))
+                        if (input_char == '\n')
                         {
                              tty_sync(fd);
                              exit(EXIT_SUCCESS);
@@ -1458,7 +1802,7 @@ int tty_connect(void)
                     if (interactive_mode)
                     {
                         /* Do not forward prefix key */
-                        if (input_char == option.prefix_code)
+                        if (option.prefix_enabled && input_char == option.prefix_code)
                         {
                             forward = false;
                         }
@@ -1466,7 +1810,7 @@ int tty_connect(void)
                         /* Handle commands */
                         handle_command_sequence(input_char, &output_char, &forward);
 
-                        if ((option.hex_mode) && (forward))
+                        if ((option.input_mode == INPUT_MODE_HEX) && (forward))
                         {
                             if (!is_valid_hex(input_char))
                             {
@@ -1499,8 +1843,21 @@ int tty_connect(void)
         }
         else if (status == -1)
         {
+#if defined(__CYGWIN__)
+            // Happens when port unpluged
+            if (errno == EACCES)
+            {
+                goto error_read;
+            }
+#elif defined(__APPLE__)
+            if (errno == EBADF)
+            {
+                break; // tty_disconnect() will be naturally triggered by atexit()
+            }
+#else
             tio_error_printf("select() failed (%s)", strerror(errno));
             exit(EXIT_FAILURE);
+#endif
         }
         else
         {

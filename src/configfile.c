@@ -1,5 +1,5 @@
 /*
- * tio - a simple serial terminal I/O tool
+ * tio - a serial device I/O tool
  *
  * Copyright (c) 2020-2022  Liam Beguin
  * Copyright (c) 2022  Martin Lund
@@ -276,14 +276,6 @@ static int data_handler(void *user, const char *section, const char *name,
                 option.prefix_key = value[0];
             }
         }
-        else if (!strcmp(name, "response-wait"))
-        {
-            option.response_wait = read_boolean(value, name);
-        }
-        else if (!strcmp(name, "response-timeout"))
-        {
-            option.response_timeout = read_integer(value, name, 0, LONG_MAX);
-        }
         else if (!strcmp(name, "rs-485"))
         {
             option.rs485 = read_boolean(value, name);
@@ -401,30 +393,36 @@ static int resolve_config_file(void)
     char *xdg = getenv("XDG_CONFIG_HOME");
     if (xdg)
     {
-        asprintf(&c.path, "%s/tio/config", xdg);
-        if (access(c.path, F_OK) == 0)
+        if (asprintf(&c.path, "%s/tio/config", xdg) != -1)
         {
-            return 0;
+            if (access(c.path, F_OK) == 0)
+            {
+                return 0;
+            }
+            free(c.path);
         }
-        free(c.path);
     }
 
     char *home = getenv("HOME");
     if (home)
     {
-        asprintf(&c.path, "%s/.config/tio/config", home);
-        if (access(c.path, F_OK) == 0)
+        if (asprintf(&c.path, "%s/.config/tio/config", home) != -1)
         {
-            return 0;
+            if (access(c.path, F_OK) == 0)
+            {
+                return 0;
+            }
+            free(c.path);
         }
-        free(c.path);
 
-        asprintf(&c.path, "%s/.tioconfig", home);
-        if (access(c.path, F_OK) == 0)
+        if (asprintf(&c.path, "%s/.tioconfig", home) != -1)
         {
-            return 0;
+            if (access(c.path, F_OK) == 0)
+            {
+                return 0;
+            }
+            free(c.path);
         }
-        free(c.path);
     }
 
     c.path = NULL;

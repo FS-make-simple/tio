@@ -13,7 +13,7 @@
 
 [![tio](images/tio-icon.png)]()
 
-# tio - a simple serial device I/O tool
+# tio - a serial device I/O tool
 
 [![](https://img.shields.io/circleci/build/github/tio/tio)](https://circleci.com/github/tio/tio/tree/master)
 [![](https://img.shields.io/github/v/release/tio/tio?sort=semver)](https://github.com/tio/tio/releases)
@@ -22,9 +22,9 @@
 
 ## 1. Introduction
 
-tio is a simple serial device tool which features a straightforward
-command-line and configuration file interface to easily connect to serial TTY
-devices for basic I/O operations.
+tio is a serial device tool which features a straightforward command-line and
+configuration file interface to easily connect to serial TTY devices for basic
+I/O operations.
 
 <p align="center">
 <img src="images/tio-demo.gif">
@@ -36,7 +36,7 @@ To make a simpler serial device tool for talking with serial TTY devices with
 less focus on classic terminal/modem features and more focus on the needs of
 embedded developers and hackers.
 
-tio was originally created as an alternative to 
+tio was originally created as an alternative to
 [screen](https://www.gnu.org/software/screen) for connecting to serial devices
 when used in combination with [tmux](https://tmux.github.io).
 
@@ -47,7 +47,7 @@ when used in combination with [tmux](https://tmux.github.io).
  * Sensible defaults (115200 8n1)
  * Support for non-standard baud rates
  * Support for mark and space parity
- * X-modem (1K) and Y-modem file upload
+ * X-modem (1K/CRC) and Y-modem file upload
  * Support for RS-485 mode
  * List available serial devices by ID
  * Show RX/TX statistics
@@ -64,16 +64,17 @@ when used in combination with [tmux](https://tmux.github.io).
  * Activate sub-configurations by name or pattern
  * Redirect I/O to UNIX socket or IPv4/v6 network socket for scripting or TTY sharing
  * Pipe input and/or output
- * Support for simple line request/response handling
  * Bash completion on options, serial device names, and sub-configuration names
  * Configurable text color
  * Visual or audible alert on connect/disconnect
  * Remapping of prefix key
  * Support NO_COLOR env variable as per no-color.org
  * Man page documentation
- * Lua scripting support
-   * Manipulate port control lines at connect/reconnect (useful for microcontroller reset/boot etc.)
-   * Automate interaction with tty device (TBD)
+ * Lua scripting support for automation
+   * Run script manually or automatically at connect once/always/never
+   * Simple expect/send like functionality with support for regular expressions
+   * Manipulate port control lines (useful for microcontroller reset/boot etc.)
+   * Send files via x/y-modem protocol
  * Plays nicely with [tmux](https://tmux.github.io)
 
 ## 3. Usage
@@ -114,8 +115,6 @@ Options:
   -m, --map <flags>                      Map characters
   -c, --color 0..255|bold|none|list      Colorize tio text (default: bold)
   -S, --socket <socket>                  Redirect I/O to socket
-  -r, --response-wait                    Wait for line response then quit
-      --response-timeout <ms>            Response timeout (default: 100)
       --rs-485                           Enable RS-485 mode
       --rs-485-config <config>           Set RS-485 configuration
       --alert bell|blink|none            Alert on connect/disconnect (default: none)
@@ -149,7 +148,7 @@ $ tio /dev/ttyUSB0
 
 Which corresponds to the commonly used default options:
 ```
-$ tio -b 115200 -d 8 -f none -s 1 -p none /dev/ttyUSB0
+$ tio --baudrate 115200 --databits 8 --flow none --stopbits 1 --parity none /dev/ttyUSB0
 ```
 
 It is recommended to connect serial TTY devices by ID:
@@ -181,14 +180,14 @@ Redirect I/O to IPv4 network socket on port 4242:
 $ tio --socket inet:4242 /dev/ttyUSB0
 ```
 
-Inject data to the serial device:
+Pipe data to the serial device:
 ```
 $ cat data.bin | tio /dev/ttyUSB0
 ```
 
-Send command to serial device and wait for line response:
+Pipe command to serial device and wait for line response within 1 second:
 ```
-$ echo "*IDN?" | tio /dev/ttyACM0 --response-wait
+$ echo "*IDN?" | tio /dev/ttyACM0 --script "expect('\r\n', 1000)" --mute
 KORAD KD3305P V4.2 SN:32475045
 ```
 
@@ -218,10 +217,9 @@ ctrl-t ? to list the available key commands.
 [15:02:53.269]  ctrl-t t       Toggle line timestamp mode
 [15:02:53.269]  ctrl-t U       Toggle conversion to uppercase on output
 [15:02:53.269]  ctrl-t v       Show version
-[15:02:53.269]  ctrl-t x       Send file via Xmodem-1K
-[15:02:53.269]  ctrl-t X       Send file via Xmodem-CRC
+[15:02:53.269]  ctrl-t x       Send file via Xmodem
 [15:02:53.269]  ctrl-t y       Send file via Ymodem
-[15:02:53.269]  ctrl-t ctrl-t Send ctrl-t character
+[15:02:53.269]  ctrl-t ctrl-t  Send ctrl-t character
 ```
 
 If needed, the prefix key (ctrl-t) can be remapped via configuration file.
@@ -237,6 +235,8 @@ following locations in the order listed:
 The configuration file supports sub-configurations using named sections which can
 be activated via the command-line by name or pattern. A sub-configuration
 specifies which TTY device to connect to and other options.
+
+### 3.4.1 Examples
 
 Example configuration file:
 
@@ -255,12 +255,23 @@ no-autoconnect = enable
 log = enable
 log-file = rpi3.log
 line-pulse-duration = DTR=200,RTS=150
+color = 11
+
+[svf2]
+device = /dev/ttyUSB0
+script = expect("login: "); send("root\n"); expect("Password: "); send("root\n")
 color = 12
+
+[esp32]
+device = /dev/serial/by-id/usb-0403_6014-if00-port0
+script = high(DTR); low(RTS); msleep(100); low(DTR); high(RTS); msleep(100); low(RTS)
+script-run = once
+color = 13
 
 [usb devices]
 pattern = usb([0-9]*)
 device = /dev/ttyUSB%s
-color = 13
+color = 14
 ```
 
 To use a specific sub-configuration by name simply start tio like so:
@@ -333,10 +344,8 @@ $ sudo usermod -a -G dialout <username>
 
 ## 5. Contributing
 
-tio is open source. If you want to help out with the project please feel free
-to join in.
-
-All contributions (bug reports, code, doc, ideas, etc.) are welcome.
+This is an open source project - all contributions (bug reports, code, doc,
+ideas, etc.) are welcome.
 
 Please use the github issue tracker and pull request features.
 
@@ -363,6 +372,6 @@ tio is GPLv2+. See LICENSE file for more details.
 
 ## 9. Authors
 
-Created by Martin Lund \<martin.lund@keep-it-simple.com>
+Maintained by Martin Lund \<martin.lund@keep-it-simple.com>
 
 See the AUTHORS file for full list of contributors.

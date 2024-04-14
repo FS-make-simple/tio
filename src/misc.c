@@ -1,5 +1,5 @@
 /*
- * tio - a simple serial terminal I/O tool
+ * tio - a serial device I/O tool
  *
  * Copyright (c) 2014-2022  Martin Lund
  *
@@ -20,6 +20,7 @@
  */
 
 #include "config.h"
+#include <regex.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -27,6 +28,7 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <errno.h>
+#include <sys/poll.h>
 #include "error.h"
 #include "print.h"
 #include "options.h"
@@ -86,4 +88,56 @@ bool fs_dir_exists(const char *path)
     }
 
     return true;
+}
+
+bool regex_match(const char *string, const char *pattern)
+{
+    regex_t regex;
+    int status;
+
+    if (regcomp(&regex, pattern, REG_EXTENDED | REG_NOSUB) != 0)
+    {
+        // No match
+        return false;
+    }
+
+    status = regexec(&regex, string, (size_t) 0, NULL, 0);
+    regfree(&regex);
+
+    if (status != 0)
+    {
+        // No match
+        return false;
+    }
+
+    // Match
+    return true;
+}
+
+int read_poll(int fd, void *data, size_t len, int timeout)
+{
+    struct pollfd fds;
+    int ret = 0;
+
+    fds.events = POLLIN;
+    fds.fd = fd;
+
+    /* Wait data available */
+    ret = poll(&fds, 1, timeout);
+    if (ret < 0)
+    {
+        tio_error_print("%s", strerror(errno));
+        return ret;
+    }
+    else if (ret > 0)
+    {
+        if (fds.revents & POLLIN)
+        {
+            // Read ready data
+            return read(fd, data, len);
+        }
+    }
+
+    /* Timeout */
+    return ret;
 }

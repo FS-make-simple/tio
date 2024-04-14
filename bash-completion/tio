@@ -22,6 +22,8 @@ _tio()
           -e --local-echo \
           -l --log \
              --log-file \
+             --log-directory \
+             --log-append \
              --log-strip \
           -m --map \
           -t --timestamp \
@@ -29,13 +31,15 @@ _tio()
           -L --list-devices \
           -c --color \
           -S --socket \
-          -x --hexadecimal \
-          -r --response-wait \
-             --response-timeout \
+             --input-mode \
+             --output-mode \
              --rs-485 \
              --rs-485-config \
              --alert \
              --mute \
+             --script \
+             --script-file \
+             --script-run \
           -v --version \
           -h --help"
 
@@ -90,12 +94,20 @@ _tio()
             COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
             return 0
             ;;
+        --log-directory)
+            COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+            return 0
+            ;;
+        --log-append)
+            COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+            return 0
+            ;;
         --log-strip)
             COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
             return 0
             ;;
         -m | --map)
-            COMPREPLY=( $(compgen -W "ICRNL IGNCR INLCR INLCRNL OCRNL ODELBS ONLCRNL MSB2LSB" -- ${cur}) )
+            COMPREPLY=( $(compgen -W "ICRNL IGNCR INLCR IFFESCC INLCRNL OCRNL ODELBS ONLCRNL MSB2LSB" -- ${cur}) )
             return 0
             ;;
         -t | --timestamp)
@@ -118,16 +130,12 @@ _tio()
             COMPREPLY=( $(compgen -W "unix: inet: inet6:" -- ${cur}) )
             return 0
             ;;
-        -x | --hexadecimal)
-            COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+        --input-mode)
+            COMPREPLY=( $(compgen -W "normal hex"  -- ${cur}) )
             return 0
             ;;
-        -r | --response-wait)
-            COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
-            return 0
-            ;;
-        --response-timeout)
-            COMPREPLY=( $(compgen -W "1 10 100" -- ${cur}) )
+        --output-mode)
+            COMPREPLY=( $(compgen -W "normal hex"  -- ${cur}) )
             return 0
             ;;
         --rs-485)
@@ -144,6 +152,18 @@ _tio()
             ;;
         --mute)
             COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+            return 0
+            ;;
+        --script)
+            COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+            return 0
+            ;;
+        --script-file)
+            COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+            return 0
+            ;;
+        --script-run)
+            COMPREPLY=( $(compgen -W "once always never"  -- ${cur}) )
             return 0
             ;;
         -v | --version)

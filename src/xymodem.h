@@ -1,5 +1,5 @@
 /*
- * tio - a simple serial terminal I/O tool
+ * tio - a serial device I/O tool
  *
  * Copyright (c) 2014-2024  Martin Lund
  *
@@ -18,6 +18,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301, USA.
  */
+
+#pragma once
 
 typedef enum {
     XMODEM_1K,

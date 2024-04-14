@@ -1,5 +1,5 @@
 /*
- * tio - a simple serial terminal I/O tool
+ * tio - a serial device I/O tool
  *
  * Copyright (c) 2014-2022  Martin Lund
  *
@@ -69,12 +69,6 @@ int main(int argc, char *argv[])
     {
         // Enter non interactive mode
         interactive_mode = false;
-
-        // Mute tio text in response mode
-        if (option.response_wait)
-        {
-            option.mute = true;
-        }
     }
 
     /* Configure output terminal */

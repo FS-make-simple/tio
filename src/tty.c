@@ -1,5 +1,5 @@
 /*
- * tio - a simple serial terminal I/O tool
+ * tio - a serial device I/O tool
  *
  * Copyright (c) 2014-2022  Martin Lund
  *
@@ -162,7 +162,7 @@ static unsigned long rx_total = 0, tx_total = 0;
 static bool connected = false;
 static bool standard_baudrate = true;
 static void (*print)(char c);
-static int fd;
+static int device_fd;
 static bool map_i_ff_escc = false;
 static bool map_i_nl_crnl = false;
 static bool map_o_cr_nl = false;
@@ -378,7 +378,7 @@ void *tty_stdin_input_thread(void *arg)
                             break;
                         case KEY_SHIFT_F:
                             tio_printf("Flushed data I/O channels")
-                            tcflush(fd, TCIOFLUSH);
+                            tcflush(device_fd, TCIOFLUSH);
                             break;
                         default:
                             break;
@@ -442,7 +442,7 @@ static void handle_hex_prompt(char c)
         unsigned char hex_value = char_to_nibble(hex_chars[0]) << 4 | (char_to_nibble(hex_chars[1]) & 0x0F);
         hex_char_index = 0;
 
-        ssize_t status = tty_write(fd, &hex_value, 1);
+        ssize_t status = tty_write(device_fd, &hex_value, 1);
         if (status < 0)
         {
             tio_warning_printf("Could not write to tty device");
@@ -496,7 +496,7 @@ void tty_line_config_apply(void)
     int i = 0;
     static int state;
 
-    if (ioctl(fd, TIOCMGET, &state) < 0)
+    if (ioctl(device_fd, TIOCMGET, &state) < 0)
     {
         tio_warning_printf("Could not get line state (%s)", strerror(errno));
         return;
@@ -523,7 +523,7 @@ void tty_line_config_apply(void)
         }
     }
 
-    if (ioctl(fd, TIOCMSET, &state) < 0)
+    if (ioctl(device_fd, TIOCMSET, &state) < 0)
     {
         tio_warning_printf("Could not set line state configuration (%s)", strerror(errno));
     }
@@ -696,22 +696,22 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                 switch (input_char)
                 {
                     case KEY_0:
-                        tty_line_poke(fd, TIOCM_DTR, line_mode, option.dtr_pulse_duration);
+                        tty_line_poke(device_fd, TIOCM_DTR, line_mode, option.dtr_pulse_duration);
                         break;
                     case KEY_1:
-                        tty_line_poke(fd, TIOCM_RTS, line_mode, option.rts_pulse_duration);
+                        tty_line_poke(device_fd, TIOCM_RTS, line_mode, option.rts_pulse_duration);
                         break;
                     case KEY_2:
-                        tty_line_poke(fd, TIOCM_CTS, line_mode, option.cts_pulse_duration);
+                        tty_line_poke(device_fd, TIOCM_CTS, line_mode, option.cts_pulse_duration);
                         break;
                     case KEY_3:
-                        tty_line_poke(fd, TIOCM_DSR, line_mode, option.dsr_pulse_duration);
+                        tty_line_poke(device_fd, TIOCM_DSR, line_mode, option.dsr_pulse_duration);
                         break;
                     case KEY_4:
-                        tty_line_poke(fd, TIOCM_CD, line_mode, option.dcd_pulse_duration);
+                        tty_line_poke(device_fd, TIOCM_CD, line_mode, option.dcd_pulse_duration);
                         break;
                     case KEY_5:
-                        tty_line_poke(fd, TIOCM_RI, line_mode, option.ri_pulse_duration);
+                        tty_line_poke(device_fd, TIOCM_RI, line_mode, option.ri_pulse_duration);
                         break;
                     default:
                         tio_warning_printf("Invalid line number");
@@ -729,7 +729,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                         {
                             tio_printf("Sending file '%s'  ", line);
                             tio_printf("Press any key to abort transfer");
-                            tio_printf("%s", xymodem_send(fd, line, XMODEM_CRC) < 0 ? "Aborted" : "Done");
+                            tio_printf("%s", xymodem_send(device_fd, line, XMODEM_CRC) < 0 ? "Aborted" : "Done");
                         }
                         break;
 
@@ -740,7 +740,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                         {
                             tio_printf("Sending file '%s'  ", line);
                             tio_printf("Press any key to abort transfer");
-                            tio_printf("%s", xymodem_send(fd, line, XMODEM_CRC) < 0 ? "Aborted" : "Done");
+                            tio_printf("%s", xymodem_send(device_fd, line, XMODEM_CRC) < 0 ? "Aborted" : "Done");
                         }
                         break;
                 }
@@ -793,11 +793,11 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                 tio_printf(" ctrl-%c v       Show version", option.prefix_key);
                 tio_printf(" ctrl-%c x       Send file via Xmodem", option.prefix_key);
                 tio_printf(" ctrl-%c y       Send file via Ymodem", option.prefix_key);
-                tio_printf(" ctrl-%c ctrl-%c Send ctrl-%c character", option.prefix_key, option.prefix_key, option.prefix_key);
+                tio_printf(" ctrl-%c ctrl-%c  Send ctrl-%c character", option.prefix_key, option.prefix_key, option.prefix_key);
                 break;
 
             case KEY_SHIFT_L:
-                if (ioctl(fd, TIOCMGET, &state) < 0)
+                if (ioctl(device_fd, TIOCMGET, &state) < 0)
                 {
                     tio_warning_printf("Could not get line state (%s)", strerror(errno));
                     break;
@@ -857,7 +857,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                 break;
 
             case KEY_B:
-                tcsendbreak(fd, 0);
+                tcsendbreak(device_fd, 0);
                 break;
 
             case KEY_C:
@@ -939,7 +939,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
 
             case KEY_R:
                 /* Run script */
-                script_run(fd);
+                script_run(device_fd);
                 break;
 
             case KEY_S:
@@ -996,7 +996,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                 if (tio_readln()) {
                     tio_printf("Sending file '%s'  ", line);
                     tio_printf("Press any key to abort transfer");
-                    tio_printf("%s", xymodem_send(fd, line, YMODEM) < 0 ? "Aborted" : "Done");
+                    tio_printf("%s", xymodem_send(device_fd, line, YMODEM) < 0 ? "Aborted" : "Done");
                 }
                 break;
 
@@ -1424,8 +1424,8 @@ void tty_disconnect(void)
     if (connected)
     {
         tio_printf("Disconnected");
-        flock(fd, LOCK_UN);
-        close(fd);
+        flock(device_fd, LOCK_UN);
+        close(device_fd);
         connected = false;
 
         /* Fire alert action */
@@ -1435,12 +1435,12 @@ void tty_disconnect(void)
 
 void tty_restore(void)
 {
-    tcsetattr(fd, TCSANOW, &tio_old);
+    tcsetattr(device_fd, TCSANOW, &tio_old);
 
     if (option.rs485)
     {
         /* Restore original RS-485 mode */
-        rs485_mode_restore(fd);
+        rs485_mode_restore(device_fd);
     }
 
     if (connected)
@@ -1536,27 +1536,24 @@ int tty_connect(void)
     int    status;
     bool   next_timestamp = false;
     char*  now = NULL;
-    struct timeval tv;
-    struct timeval *tv_p = &tv;
-    bool ignore_stdin = false;
 
     /* Open tty device */
-    fd = open(option.tty_device, O_RDWR | O_NOCTTY | O_NONBLOCK);
-    if (fd < 0)
+    device_fd = open(option.tty_device, O_RDWR | O_NOCTTY | O_NONBLOCK);
+    if (device_fd < 0)
     {
         tio_error_printf_silent("Could not open tty device (%s)", strerror(errno));
         goto error_open;
     }
 
     /* Make sure device is of tty type */
-    if (!isatty(fd))
+    if (!isatty(device_fd))
     {
         tio_error_printf("Not a tty device");
         exit(EXIT_FAILURE);;
     }
 
     /* Lock device file */
-    status = flock(fd, LOCK_EX | LOCK_NB);
+    status = flock(device_fd, LOCK_EX | LOCK_NB);
     if ((status == -1) && (errno == EWOULDBLOCK))
     {
         tio_error_printf("Device file is locked by another process");
@@ -1564,7 +1561,7 @@ int tty_connect(void)
     }
 
     /* Flush stale I/O data (if any) */
-    tcflush(fd, TCIOFLUSH);
+    tcflush(device_fd, TCIOFLUSH);
 
     /* Print connect status */
     tio_printf("Connected");
@@ -1583,7 +1580,7 @@ int tty_connect(void)
     tty_output_mode_set(option.output_mode);
 
     /* Save current port settings */
-    if (tcgetattr(fd, &tio_old) < 0)
+    if (tcgetattr(device_fd, &tio_old) < 0)
     {
         tio_error_printf_silent("Could not get port settings (%s)", strerror(errno));
         goto error_tcgetattr;
@@ -1601,7 +1598,7 @@ int tty_connect(void)
     /* Manage RS-485 mode */
     if (option.rs485)
     {
-        rs485_mode_enable(fd);
+        rs485_mode_enable(device_fd);
     }
 
     /* Make sure we restore tty settings on exit */
@@ -1612,7 +1609,7 @@ int tty_connect(void)
     }
 
     /* Activate new port settings */
-    status = tcsetattr(fd, TCSANOW, &tio);
+    status = tcsetattr(device_fd, TCSANOW, &tio);
     if (status == -1)
     {
         tio_error_printf_silent("Could not apply port settings (%s)", strerror(errno));
@@ -1622,17 +1619,46 @@ int tty_connect(void)
     /* Set arbitrary baudrate (only works on supported platforms) */
     if (!standard_baudrate)
     {
-        if (setspeed(fd, option.baudrate) != 0)
+        if (setspeed(device_fd, option.baudrate) != 0)
         {
             tio_error_printf_silent("Could not set baudrate speed (%s)", strerror(errno));
             goto error_setspeed;
         }
     }
 
+    /* If stdin is a pipe forward all input to tty device */
+    if (interactive_mode == false)
+    {
+        while (true)
+        {
+            int ret = read(pipefd[0], &input_char, 1);
+            if (ret < 0)
+            {
+                tio_error_printf("Could not read from pipe (%s)", strerror(errno));
+                exit(EXIT_FAILURE);
+            }
+            else if (ret > 0)
+            {
+                // Forward to tty device
+                ret = write(device_fd, &input_char, 1);
+                if (ret < 0)
+                {
+                    tio_error_printf("Could not write to serial device (%s)", strerror(errno));
+                    exit(EXIT_FAILURE);
+                }
+            }
+            else
+            {
+                // EOF - finished forwarding
+                break;
+            }
+        }
+    }
+
     /* Manage script activation */
     if (option.script_run != SCRIPT_RUN_NEVER)
     {
-        script_run(fd);
+        script_run(device_fd);
 
         if (option.script_run == SCRIPT_RUN_ONCE)
         {
@@ -1640,40 +1666,31 @@ int tty_connect(void)
         }
     }
 
+    // Exit if piped input
+    if (interactive_mode == false)
+    {
+        exit(EXIT_SUCCESS);
+    }
+
     /* Input loop */
     while (true)
     {
         FD_ZERO(&rdfs);
-        FD_SET(fd, &rdfs);
-        if (!ignore_stdin)
-        {
-            FD_SET(pipefd[0], &rdfs);
-        }
-        maxfd = MAX(fd, pipefd[0]);
+        FD_SET(device_fd, &rdfs);
+        FD_SET(pipefd[0], &rdfs);
+
+        maxfd = MAX(device_fd, pipefd[0]);
         maxfd = MAX(maxfd, socket_add_fds(&rdfs, true));
 
-        /* Manage timeout */
-        if ((option.response_wait) && (option.response_timeout != 0))
-        {
-            // Set response timeout
-            tv_p->tv_sec = 0;
-            tv_p->tv_usec = option.response_timeout * 1000;
-        }
-        else
-        {
-            // No timeout
-            tv_p = NULL;
-        }
-
         /* Block until input becomes available */
-        status = select(maxfd + 1, &rdfs, NULL, NULL, tv_p);
+        status = select(maxfd + 1, &rdfs, NULL, NULL, NULL);
         if (status > 0)
         {
             bool forward = false;
-            if (FD_ISSET(fd, &rdfs))
+            if (FD_ISSET(device_fd, &rdfs))
             {
                 /* Input from tty device ready */
-                ssize_t bytes_read = read(fd, input_buffer, BUFSIZ);
+                ssize_t bytes_read = read(device_fd, input_buffer, BUFSIZ);
                 if (bytes_read <= 0)
                 {
                     /* Error reading - device is likely unplugged */
@@ -1750,15 +1767,6 @@ int tty_connect(void)
                     {
                         next_timestamp = true;
                     }
-
-                    if (option.response_wait)
-                    {
-                        if (input_char == '\n')
-                        {
-                             tty_sync(fd);
-                             exit(EXIT_SUCCESS);
-                        }
-                    }
                 }
             }
             else if (FD_ISSET(pipefd[0], &rdfs))
@@ -1772,22 +1780,9 @@ int tty_connect(void)
                 }
                 else if (bytes_read == 0)
                 {
-                    /* Reached EOF (when piping to stdin) */
-                    if (option.response_wait)
-                    {
-                        /* Stdin pipe closed but not blocking so stop listening
-                         * to stdin in response mode.
-                         *
-                         * Note: select() really indicates not if data is ready
-                         * but if file descriptor is non-blocking for I/O
-                         * operation. */
-                        ignore_stdin = true;
-                    }
-                    else
-                    {
-                        tty_sync(fd);
-                        exit(EXIT_SUCCESS);
-                    }
+                    /* Reached EOF (when piping to stdin, never reached) */
+                    tty_sync(device_fd);
+                    exit(EXIT_SUCCESS);
                 }
 
                 /* Process input byte by byte */
@@ -1822,11 +1817,11 @@ int tty_connect(void)
 
                     if (forward)
                     {
-                        forward_to_tty(fd, output_char);
+                        forward_to_tty(device_fd, output_char);
                     }
                 }
 
-                tty_sync(fd);
+                tty_sync(device_fd);
             }
             else
             {
@@ -1835,10 +1830,10 @@ int tty_connect(void)
 
                 if (forward)
                 {
-                    forward_to_tty(fd, output_char);
+                    forward_to_tty(device_fd, output_char);
                 }
 
-                tty_sync(fd);
+                tty_sync(device_fd);
             }
         }
         else if (status == -1)

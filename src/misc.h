@@ -1,5 +1,5 @@
 /*
- * tio - a simple serial terminal I/O tool
+ * tio - a serial device I/O tool
  *
  * Copyright (c) 2014-2022  Martin Lund
  *
@@ -22,6 +22,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdio.h>
 
 #define UNUSED(expr) do { (void)(expr); } while (0)
 
@@ -32,3 +33,5 @@ int ctrl_key_code(unsigned char key);
 void alert_connect(void);
 void alert_disconnect(void);
 bool fs_dir_exists(const char *path);
+bool regex_match(const char *string, const char *pattern);
+int read_poll(int fd, void *data, size_t len, int timeout);
